@@ -201,8 +201,8 @@ let player = {
     speed: PLAYER_SPEED,
     dx: 0,
     dy: 0,
-    hp: 5,
-    maxHp: 5,
+    hp: 15,
+    maxHp: 15,
     invulnerable: false,
     invulnerabilityTimer: 0,
     flash: false,
@@ -743,8 +743,8 @@ function resetGameState() {
         speed: PLAYER_SPEED,
         dx: 0,
         dy: 0,
-        hp: 5,
-        maxHp: 5,
+        hp: 15,
+        maxHp: 15,
         invulnerable: false,
         invulnerabilityTimer: 0,
         flash: false,
@@ -1017,11 +1017,19 @@ function update(timestamp) {
         itemsPerRoom[currentRoomY][currentRoomX].forEach((item, index) => {
             if (!item.collected && isCollidingWith(player, item)) {
                 item.collected = true;
-                player.powerUp = item.type;
-                player.powerUpTimer = POWERUP_DURATION;
-                console.log(`Picked up ${item.type}`);
-                // Optionally remove the item from the array if you don't need it anymore
-                // itemsPerRoom[currentRoomY][currentRoomX].splice(index, 1);
+                if (item.type === "spreadShot") {
+                    player.powerUp = "spreadShot";
+                    // Progress spreadShots: 0 -> 3 -> 5 -> 7
+                    if (player.spreadShots === 0) {
+                        player.spreadShots = 3;
+                    } else if (player.spreadShots === 3) {
+                        player.spreadShots = 5;
+                    } else if (player.spreadShots === 5) {
+                        player.spreadShots = 7;
+                    } // No change if already 7
+                    player.powerUpTimer = POWERUP_DURATION;
+                    console.log(`Picked up spreadShot, now ${player.spreadShots} shots`);
+                }
             }
         });
 
@@ -1034,6 +1042,8 @@ function update(timestamp) {
         //         console.log("Power-up expired");
         //     }
         // }
+
+
 
         // Update game entities
         updateEnemies();
@@ -1333,7 +1343,7 @@ function render() {
     ctx.strokeRect(10, 10, 100, 20);
     ctx.fillStyle = "#fff";
     ctx.font = "16px Arial";
-    ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 140, 25);
+    ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 150, 25);
 
     drawMinimap();
 
@@ -1450,18 +1460,15 @@ function shootProjectile(shooter, isPlayer = false) {
     const projectileSpeed = 5; // Base speed consistent across all shots
 
     if (isPlayer && player.powerUp === "spreadShot" && player.spreadShots > 0) {
-        // Calculate number of shots (3, 5, or 7)
-        const numShots = Math.min(player.spreadShots, 7); // Cap at 7
+        const numShots = player.spreadShots; // Use spreadShots directly (3, 5, or 7)
         const maxAngle = Math.PI / 6; // Maximum spread angle (30 degrees total)
         const angleStep = numShots > 1 ? maxAngle / ((numShots - 1) / 2) : 0;
 
         for (let i = 0; i < numShots; i++) {
-            // Calculate angle for each shot
             let angleOffset = (i - (numShots - 1) / 2) * angleStep;
             let shotDx = Math.cos(angleOffset) * facing.x - Math.sin(angleOffset) * facing.y;
             let shotDy = Math.sin(angleOffset) * facing.x + Math.cos(angleOffset) * facing.y;
 
-            // Normalize and scale to match speed
             let shotMag = Math.sqrt(shotDx * shotDx + shotDy * shotDy);
             shotDx = (shotDx / shotMag) * projectileSpeed;
             shotDy = (shotDy / shotMag) * projectileSpeed;
@@ -1478,7 +1485,6 @@ function shootProjectile(shooter, isPlayer = false) {
             });
         }
     } else {
-        // Single shot (no power-up or enemy shot)
         let projectile = {
             x: shooter.x,
             y: shooter.y,
@@ -1614,7 +1620,7 @@ function spawnRoomEnemies() {
         else spawnShooterEnemy(currentRoomX, currentRoomY);
     }
     // 20% chance to spawn a power-up
-    if (Math.random() < 0.5 && itemsPerRoom[currentRoomY][currentRoomX].length === 0) {
+    if (Math.random() > 0 && itemsPerRoom[currentRoomY][currentRoomX].length === 0) {
         spawnPowerUp(currentRoomX, currentRoomY);
     }
     items = itemsPerRoom[currentRoomY][currentRoomX];
