@@ -4,7 +4,7 @@ const path = require('path');
 
 const app = express();
 const port = 3000;
-
+const host = "https://jamiegame.onrender.com"
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
@@ -50,6 +50,6 @@ app.get('/loadDungeon', (req, res) => {
 });
 
 // Start the server
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+app.listen(port,host , () => {
+    console.log(`Server running at http://${host}:${port}`);
 });
