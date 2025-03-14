@@ -1340,6 +1340,8 @@ function render() {
             ctx.drawImage(
                 powerUpSprite,
                 0, 0, 32, 32,
+
+                
                 INVENTORY_X + 10,
                 INVENTORY_Y+ 8,
                 32, 32
