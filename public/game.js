@@ -655,7 +655,7 @@ function ensurePathToDoors(room, startX, startY, doors) {
 function spawnPowerUp(roomX, roomY) {
     let powerUp;
     let attempts = 0;
-    const maxAttempts = 50;
+    const maxAttempts = 250;
     const playerSpawnRadius = 150;
 
     do {
@@ -1109,34 +1109,7 @@ function render() {
         return;
     }
 
-    if (gameState === "playing") {
-        // Draw inventory
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.fillRect(INVENTORY_X, INVENTORY_Y, INVENTORY_WIDTH, INVENTORY_HEIGHT);
-        ctx.fillStyle = "#fff";
-        ctx.font = "16px Arial";
-        ctx.fillText("Inventory:", INVENTORY_X + 10, INVENTORY_Y + 20);
-        if (player.powerUp) {
-            ctx.fillText(`${player.powerUp} (${Math.ceil(player.powerUpTimer / 1000)}s)`, INVENTORY_X + 10, INVENTORY_Y + 40);
-        }
 
-        // Draw items
-        ctx.save();
-        ctx.translate(-camera.x, -camera.y);
-        items.forEach(item => {
-            if (!item.collected) {
-                ctx.drawImage(
-                    powerUpSprite,
-                    0, 0, 32, 32,
-                    item.x - item.width / 2,
-                    item.y - item.height / 2,
-                    item.width,
-                    item.height
-                );
-            }
-        });
-        ctx.restore();
-    }
 
     ctx.save();
     ctx.translate(-camera.x, -camera.y);
@@ -1256,6 +1229,7 @@ function render() {
 
         ctx.restore();
 
+
         ctx.fillStyle = "#f00";
         ctx.fillRect(
             enemy.x - enemy.width / 2,
@@ -1354,6 +1328,42 @@ function render() {
 
     if (gameState === "paused") {
         drawPauseScreen();
+    }
+
+    if (gameState === "playing") {
+        // Draw inventory
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(INVENTORY_X, INVENTORY_Y, INVENTORY_WIDTH, INVENTORY_HEIGHT);
+        ctx.fillStyle = "#fff";
+        ctx.font = "16px Arial";
+        if (player.powerUp) {
+            ctx.drawImage(
+                powerUpSprite,
+                0, 0, 32, 32,
+                INVENTORY_X + 10,
+                INVENTORY_Y+ 8,
+                32, 32
+
+
+            );
+        }
+
+        // Draw items
+        ctx.save();
+        ctx.translate(-camera.x, -camera.y);
+        items.forEach(item => {
+            if (!item.collected) {
+                ctx.drawImage(
+                    powerUpSprite,
+                    0, 0, 32, 32,
+                    item.x - item.width / 2,
+                    item.y - item.height / 2,
+                    item.width,
+                    item.height
+                );
+            }
+        });
+        ctx.restore();
     }
 }
 
