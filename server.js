@@ -4,7 +4,7 @@ const path = require('path');
 
 const app = express();
 const port = 3000;
-const host = "https://jamiegame.onrender.com"
+const host = "localhost"
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));

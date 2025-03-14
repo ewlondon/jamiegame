@@ -45,6 +45,23 @@ const MINIMAP_TILE_SIZE_X = TILE_SIZE * MINIMAP_SCALE_X;
 const MINIMAP_TILE_SIZE_Y = TILE_SIZE * MINIMAP_SCALE_Y;
 const MINIMAP_PLAYER_SIZE = 4;
 
+
+const POWERUP_SIZE = 32;
+const POWERUP_DURATION = 10000; // 10 seconds
+const INVENTORY_X = 10;
+const INVENTORY_Y = canvas.height - 60;
+const INVENTORY_WIDTH = 200;
+const INVENTORY_HEIGHT = 50;
+
+
+
+// Arrays for items
+let itemsPerRoom = Array(TOTAL_ROOMS_Y)
+    .fill()
+    .map(() => Array(TOTAL_ROOMS_X).fill([]));
+let items = [];
+
+
 const playerSprite = new Image();
 playerSprite.src = "jamie.png";
 
@@ -56,6 +73,10 @@ enemySprite2.src = "charger.png";
 
 const enemySprite3 = new Image();
 enemySprite3.src = "shooter.png";
+
+const powerUpSprite = new Image();
+powerUpSprite.src = "powerup.png"; // Add your power-up sprite image
+
 
 const terrainSprite = new Image();
 terrainSprite.src = "terrain.png";
@@ -136,7 +157,7 @@ function createRedFlashImageData(originalData) {
 
 const titleAudio = new Audio("title.mp3");
 titleAudio.loop = true;
-const bgAudio = new Audio("bassdrummer.mp3");
+const bgAudio = new Audio("bg.mp3");
 bgAudio.loop = true;
 
 
@@ -191,8 +212,11 @@ let player = {
     animationFrame: 0,
     animationTimer: 0,
     facingRight: false,
+    spreadShots: 0,
 };
-
+// Add to player object
+player.powerUp = null;
+player.powerUpTimer = 0;
 let camera = {
     x: 0,
     y: 0,
@@ -628,6 +652,37 @@ function ensurePathToDoors(room, startX, startY, doors) {
     }
 }
 
+function spawnPowerUp(roomX, roomY) {
+    let powerUp;
+    let attempts = 0;
+    const maxAttempts = 50;
+    const playerSpawnRadius = 150;
+
+    do {
+        powerUp = {
+            x: Math.random() * (ROOM_WIDTH * TILE_SIZE - TILE_SIZE) + TILE_SIZE / 2,
+            y: Math.random() * (ROOM_HEIGHT * TILE_SIZE - TILE_SIZE) + TILE_SIZE / 2,
+            width: POWERUP_SIZE,
+            height: POWERUP_SIZE,
+            type: "spreadShot",
+            roomX: roomX,
+            roomY: roomY,
+            collected: false,
+        };
+        attempts++;
+    } while (
+        attempts < maxAttempts &&
+        (isColliding(powerUp.x, powerUp.y, powerUp.width, powerUp.height) ||
+            (roomX === currentRoomX &&
+                roomY === currentRoomY &&
+                Math.sqrt((powerUp.x - player.x) ** 2 + (powerUp.y - player.y) ** 2) < playerSpawnRadius))
+    );
+
+    if (attempts < maxAttempts) {
+        itemsPerRoom[roomY][roomX].push(powerUp);
+    }
+}
+
 async function saveDungeon(stage = 1) {
     const dungeonData = {
         rooms: rooms,
@@ -699,6 +754,7 @@ function resetGameState() {
         animationFrame: 0,
         animationTimer: 0,
         facingRight: false,
+        spreadShots: 0,
     };
     enemies = [];
     projectiles = [];
@@ -718,6 +774,10 @@ function resetGameState() {
 
 document.addEventListener("keydown", (e) => {
     keys[e.key] = true;
+    if (e.key === 'p') {
+        player.hp = 99999;
+        player.maxHp = 99999;
+    }
     if (e.key === "h" && gameState === "playing") showHitboxes = !showHitboxes;
     if (e.key === "1" && gameState === "playing") saveDungeon();
     if (e.key === "4" && gameState === "playing") loadDungeon();
@@ -871,6 +931,7 @@ function update(timestamp) {
             return;
         }
 
+        // Player movement
         player.dx = 0;
         player.dy = 0;
         if (keys["w"]) player.dy = -player.speed;
@@ -884,6 +945,7 @@ function update(timestamp) {
             player.facingRight = true;
         }
 
+        // Player facing direction for shooting
         player.facing = { x: 0, y: 0 };
         let shouldShoot = false;
         if (keys["ArrowUp"]) {
@@ -914,10 +976,12 @@ function update(timestamp) {
             player.facing.y /= magnitude;
         }
 
+        // Move player and update camera
         movePlayer();
         updateCamera();
         checkRoomTransition();
 
+        // Handle player invulnerability
         if (player.invulnerable) {
             player.invulnerabilityTimer -= 16;
             player.flashTimer -= 16;
@@ -931,6 +995,7 @@ function update(timestamp) {
             }
         }
 
+        // Handle shooting cooldown
         if (player.shootCooldown > 0) {
             player.shootCooldown -= 16;
         }
@@ -941,15 +1006,40 @@ function update(timestamp) {
             player.shootCooldown = SHOOT_COOLDOWN;
         }
 
+        // Player animation
         player.animationTimer += 16;
         if (player.animationTimer >= PLAYER_ANIMATION_SPEED) {
             player.animationFrame = (player.animationFrame + 1) % 2;
             player.animationTimer = 0;
         }
 
+        // Check for item pickup
+        itemsPerRoom[currentRoomY][currentRoomX].forEach((item, index) => {
+            if (!item.collected && isCollidingWith(player, item)) {
+                item.collected = true;
+                player.powerUp = item.type;
+                player.powerUpTimer = POWERUP_DURATION;
+                console.log(`Picked up ${item.type}`);
+                // Optionally remove the item from the array if you don't need it anymore
+                // itemsPerRoom[currentRoomY][currentRoomX].splice(index, 1);
+            }
+        });
+
+        // // Update power-up timer
+        // if (player.powerUp && player.powerUpTimer > 0) {
+        //     player.powerUpTimer -= 16;
+        //     if (player.powerUpTimer <= 0) {
+        //         player.powerUp = null;
+        //         player.powerUpTimer = 0;
+        //         console.log("Power-up expired");
+        //     }
+        // }
+
+        // Update game entities
         updateEnemies();
         updateProjectiles();
 
+        // Check for game over
         if (player.hp <= 0) {
             gameState = "gameOver";
             bgAudio.pause();
@@ -1007,6 +1097,35 @@ function render() {
             canvas.height / 2 + 20
         );
         return;
+    }
+
+    if (gameState === "playing") {
+        // Draw inventory
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(INVENTORY_X, INVENTORY_Y, INVENTORY_WIDTH, INVENTORY_HEIGHT);
+        ctx.fillStyle = "#fff";
+        ctx.font = "16px Arial";
+        ctx.fillText("Inventory:", INVENTORY_X + 10, INVENTORY_Y + 20);
+        if (player.powerUp) {
+            ctx.fillText(`${player.powerUp} (${Math.ceil(player.powerUpTimer / 1000)}s)`, INVENTORY_X + 10, INVENTORY_Y + 40);
+        }
+
+        // Draw items
+        ctx.save();
+        ctx.translate(-camera.x, -camera.y);
+        items.forEach(item => {
+            if (!item.collected) {
+                ctx.drawImage(
+                    powerUpSprite,
+                    0, 0, 32, 32,
+                    item.x - item.width / 2,
+                    item.y - item.height / 2,
+                    item.width,
+                    item.height
+                );
+            }
+        });
+        ctx.restore();
     }
 
     ctx.save();
@@ -1279,6 +1398,22 @@ function drawMinimap() {
             }
         }
     }
+    itemsPerRoom.forEach((row, y) => {
+        row.forEach((roomItems, x) => {
+            if (visitedRooms[y][x]) {
+                roomItems.forEach(item => {
+                    if (!item.collected) {
+                        let itemX = MINIMAP_X + x * ROOM_WIDTH * TILE_SIZE * MINIMAP_SCALE_X + item.x * MINIMAP_SCALE_X;
+                        let itemY = MINIMAP_Y + y * ROOM_HEIGHT * TILE_SIZE * MINIMAP_SCALE_Y + item.y * MINIMAP_SCALE_Y;
+                        ctx.fillStyle = "gold";
+                        ctx.beginPath();
+                        ctx.arc(itemX, itemY, MINIMAP_PLAYER_SIZE / 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                });
+            }
+        });
+    });
 
     let playerRoomX =
         MINIMAP_X + currentRoomX * ROOM_WIDTH * TILE_SIZE * MINIMAP_SCALE_X;
@@ -1312,20 +1447,52 @@ function shootProjectile(shooter, isPlayer = false) {
     facing.x /= magnitude;
     facing.y /= magnitude;
 
-    let projectile = {
-        x: shooter.x,
-        y: shooter.y,
-        width: PROJECTILE_SIZE,
-        height: PROJECTILE_SIZE,
-        dx: facing.x * 5,
-        dy: facing.y * 5,
-        trail: [],
-        isPlayer: isPlayer,
-    };
-    projectiles.push(projectile);
+    const projectileSpeed = 5; // Base speed consistent across all shots
+
+    if (isPlayer && player.powerUp === "spreadShot" && player.spreadShots > 0) {
+        // Calculate number of shots (3, 5, or 7)
+        const numShots = Math.min(player.spreadShots, 7); // Cap at 7
+        const maxAngle = Math.PI / 6; // Maximum spread angle (30 degrees total)
+        const angleStep = numShots > 1 ? maxAngle / ((numShots - 1) / 2) : 0;
+
+        for (let i = 0; i < numShots; i++) {
+            // Calculate angle for each shot
+            let angleOffset = (i - (numShots - 1) / 2) * angleStep;
+            let shotDx = Math.cos(angleOffset) * facing.x - Math.sin(angleOffset) * facing.y;
+            let shotDy = Math.sin(angleOffset) * facing.x + Math.cos(angleOffset) * facing.y;
+
+            // Normalize and scale to match speed
+            let shotMag = Math.sqrt(shotDx * shotDx + shotDy * shotDy);
+            shotDx = (shotDx / shotMag) * projectileSpeed;
+            shotDy = (shotDy / shotMag) * projectileSpeed;
+
+            projectiles.push({
+                x: shooter.x,
+                y: shooter.y,
+                width: PROJECTILE_SIZE,
+                height: PROJECTILE_SIZE,
+                dx: shotDx,
+                dy: shotDy,
+                trail: [],
+                isPlayer: true,
+            });
+        }
+    } else {
+        // Single shot (no power-up or enemy shot)
+        let projectile = {
+            x: shooter.x,
+            y: shooter.y,
+            width: PROJECTILE_SIZE,
+            height: PROJECTILE_SIZE,
+            dx: facing.x * projectileSpeed,
+            dy: facing.y * projectileSpeed,
+            trail: [],
+            isPlayer: isPlayer,
+        };
+        projectiles.push(projectile);
+    }
     playSFX(shootSFX);
 }
-
 function checkRoomTransition() {
     let playerLeft = player.x - PLAYER_FRAME_WIDTH / 2;
     let playerRight = player.x + PLAYER_FRAME_WIDTH / 2;
@@ -1446,17 +1613,20 @@ function spawnRoomEnemies() {
         else if (enemyType === 1) spawnChargerEnemy(currentRoomX, currentRoomY);
         else spawnShooterEnemy(currentRoomX, currentRoomY);
     }
+    // 20% chance to spawn a power-up
+    if (Math.random() < 0.5 && itemsPerRoom[currentRoomY][currentRoomX].length === 0) {
+        spawnPowerUp(currentRoomX, currentRoomY);
+    }
+    items = itemsPerRoom[currentRoomY][currentRoomX];
 }
 
 function drawRoom() {
     if (!isTransitioning) {
-        // Clear the rendering area to preserve transparency
-        ctx.clearRect(0, 0, canvas.width, canvas.height); // Add this line
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the rendering area
 
         let currentRoom = rooms[currentRoomY][currentRoomX];
         for (let y = 0; y < ROOM_HEIGHT; y++) {
             for (let x = 0; x < ROOM_WIDTH; x++) {
-                // ... (rest of your existing loop logic remains unchanged)
                 let screenX = Math.floor(x * TILE_SIZE);
                 let screenY = Math.floor(y * TILE_SIZE);
                 if (
@@ -1488,6 +1658,25 @@ function drawRoom() {
                 );
             }
         }
+
+        // Draw items in the current room
+        itemsPerRoom[currentRoomY][currentRoomX].forEach((item) => {
+            if (!item.collected) {
+                ctx.drawImage(
+                    powerUpSprite,
+                    0,
+                    0,
+                    32,
+                    32,
+                    item.x - item.width / 2,
+                    item.y - item.height / 2,
+                    item.width,
+                    item.height
+                );
+            }
+        });
+
+        // Draw door shadows
         ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
         for (let y = 0; y < ROOM_HEIGHT; y++) {
             if (currentRoom[y][0] === 0) {
@@ -1538,12 +1727,12 @@ function movePlayer() {
 
 function isColliding(x, y, width, height) {
     let currentRoom = rooms[currentRoomY][currentRoomX];
-    let tileX1 = Math.floor((x - width / 2) / TILE_SIZE);
-    let tileY1 = Math.floor((y - height / 2) / TILE_SIZE);
-    let tileX2 = Math.floor((x + width / 2) / TILE_SIZE);
-    let tileY2 = Math.floor((y + height / 2) / TILE_SIZE);
+    let tileX1 = Math.floor((x - width / 4) / TILE_SIZE); // Reduced hitbox
+    let tileY1 = Math.floor((y - height / 4) / TILE_SIZE);
+    let tileX2 = Math.floor((x + width / 4) / TILE_SIZE);
+    let tileY2 = Math.floor((y + height / 4) / TILE_SIZE);
 
-    return (
+    let result =
         (tileX1 >= 0 &&
             tileX1 < ROOM_WIDTH &&
             tileY1 >= 0 &&
@@ -1563,11 +1752,11 @@ function isColliding(x, y, width, height) {
             tileX2 < ROOM_WIDTH &&
             tileY2 >= 0 &&
             tileY2 < ROOM_HEIGHT &&
-            currentRoom[tileY2][tileX2] === 1)
-    );
+            currentRoom[tileY2][tileX2] === 1);
+
+    console.log(`Collision check at (${x}, ${y}) with size (${width}, ${height}): ${result}`);
+    return result;
 }
-
-
 
 
 function spawnBasicEnemy(roomX, roomY) {
@@ -1582,7 +1771,7 @@ function spawnBasicEnemy(roomX, roomY) {
             y: Math.random() * (ROOM_HEIGHT * TILE_SIZE - TILE_SIZE) + TILE_SIZE / 4,
             width: 64,
             height: 64,
-            speed: 3.5,
+            speed: 3.5, // Ensure this is set
             hp: 7,
             maxHp: 7,
             roomX: roomX,
@@ -1592,7 +1781,57 @@ function spawnBasicEnemy(roomX, roomY) {
             invulnerabilityTimer: 0,
             flash: false,
             flashTimer: 0,
-            facingRight: true, // Default facing right
+            facingRight: true,
+        };
+        attempts++;
+    } while (
+        attempts < maxAttempts &&
+        (isColliding(enemy.x, enemy.y, enemy.width, enemy.height) ||
+            (roomX === currentRoomX &&
+                roomY === currentRoomY &&
+                Math.sqrt((enemy.x - player.x) ** 2 + (enemy.y - player.y) ** 2) < playerSpawnRadius))
+    );
+
+    if (attempts < maxAttempts) {
+        enemies.push(enemy);
+        console.log(`Spawned basic enemy at (${enemy.x}, ${enemy.y}) with speed ${enemy.speed}`);
+    } else {
+        enemy.x = ROOM_WIDTH * TILE_SIZE / 2;
+        enemy.y = ROOM_HEIGHT * TILE_SIZE / 2;
+        enemies.push(enemy);
+        console.log(`Fallback spawn at (${enemy.x}, ${enemy.y}) with speed ${enemy.speed}`);
+    }
+}
+
+
+function spawnChargerEnemy(roomX, roomY) {
+    let enemy;
+    let attempts = 0;
+    const maxAttempts = 50;
+    const playerSpawnRadius = 150;
+
+    do {
+        enemy = {
+            x: Math.random() * (ROOM_WIDTH * TILE_SIZE - TILE_SIZE) + TILE_SIZE / 4,
+            y: Math.random() * (ROOM_HEIGHT * TILE_SIZE - TILE_SIZE) + TILE_SIZE / 4,
+            width: 32,
+            height: 32,
+            speed: 2, // Slow base speed
+            chargeSpeed: 8, // Fast charge speed
+            hp: 5,
+            maxHp: 5,
+            roomX: roomX,
+            roomY: roomY,
+            type: "charger",
+            chargeTimer: 1500, // 1.5 seconds
+            isCharging: false,
+            chargeDx: 0,
+            chargeDy: 0,
+            invulnerable: false,
+            invulnerabilityTimer: 0,
+            flash: false,
+            flashTimer: 0,
+            facingRight: true,
         };
         attempts++;
     } while (
@@ -1608,46 +1847,187 @@ function spawnBasicEnemy(roomX, roomY) {
     }
 }
 
-function spawnChargerEnemy(roomX, roomY) {
-    let enemy;
-    let attempts = 0;
-    const maxAttempts = 50;
-    const playerSpawnRadius = 150;
+function updateEnemies() {
+    enemies = enemies.filter((enemy) => enemy.hp > 0);
+    enemies.forEach((enemy) => {
+        if (enemy.invulnerable) {
+            enemy.invulnerabilityTimer -= 16;
+            enemy.flashTimer -= 16;
+            if (enemy.flashTimer <= 0) {
+                enemy.flash = !enemy.flash;
+                enemy.flashTimer = FLASH_INTERVAL;
+            }
+            if (enemy.invulnerabilityTimer <= 0) {
+                enemy.invulnerable = false;
+                enemy.flash = false;
+            }
+        }
 
-    do {
-        enemy = {
-            x: Math.random() * (ROOM_WIDTH * TILE_SIZE - TILE_SIZE) + TILE_SIZE / 4,
-            y: Math.random() * (ROOM_HEIGHT * TILE_SIZE - TILE_SIZE) + TILE_SIZE / 4,
-            width: 32,
-            height: 32,
-            speed: 4,
-            hp: 5,
-            maxHp: 5,
-            roomX: roomX,
-            roomY: roomY,
-            type: "charger",
-            chargeTimer: 1000,
-            isCharging: false,
-            chargeDx: 0,
-            chargeDy: 0,
-            invulnerable: false,
-            invulnerabilityTimer: 0,
-            flash: false,
-            flashTimer: 0,
-            facingRight: true, // Default facing right
-        };
-        attempts++;
-    } while (
-        attempts < maxAttempts &&
-        (isColliding(enemy.x, enemy.y, enemy.width, enemy.height) ||
-            (roomX === currentRoomX &&
-                roomY === currentRoomY &&
-                Math.sqrt((enemy.x - player.x) ** 2 + (enemy.y - player.y) ** 2) < playerSpawnRadius))
-    );
+        let dx = player.x - enemy.x;
+        let dy = player.y - enemy.y;
+        let distance = Math.sqrt(dx * dx + dy * dy);
 
-    if (attempts < maxAttempts) {
-        enemies.push(enemy);
-    }
+        if (enemy.type === "basic") {
+            console.log(`Basic enemy at (${enemy.x}, ${enemy.y}), distance to player: ${distance}`); // Debug log
+
+            if (distance > 0) {
+                let moveX = (dx / distance) * enemy.speed;
+                let moveY = (dy / distance) * enemy.speed;
+                let newX = enemy.x + moveX;
+                let newY = enemy.y + moveY;
+
+                // Update facing direction
+                enemy.facingRight = moveX >= 0;
+
+                console.log(`Attempting move: (${moveX}, ${moveY}) to (${newX}, ${newY})`); // Debug log
+
+                if (!isColliding(newX, newY, enemy.width, enemy.height)) {
+                    console.log(`Moving to (${newX}, ${newY})`); // Debug log
+                    enemy.x = newX;
+                    enemy.y = newY;
+                } else {
+                    console.log("Collision detected, trying alternatives"); // Debug log
+                    let altDirections = [
+                        { dx: enemy.speed, dy: 0 },
+                        { dx: -enemy.speed, dy: 0 },
+                        { dx: 0, dy: enemy.speed },
+                        { dx: 0, dy: -enemy.speed },
+                    ];
+
+                    for (let alt of altDirections) {
+                        newX = enemy.x + alt.dx;
+                        newY = enemy.y + alt.dy;
+                        if (!isColliding(newX, newY, enemy.width, enemy.height)) {
+                            console.log(`Alternative move to (${newX}, ${newY})`); // Debug log
+                            enemy.x = newX;
+                            enemy.y = newY;
+                            enemy.facingRight = alt.dx >= 0;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                console.log("Enemy too close to player, no movement"); // Debug log
+            }
+        } else if (enemy.type === "charger") {
+            const detectionRadius = 1200;
+            if (!enemy.isCharging) {
+                if (distance > 0) {
+                    let moveX = (dx / distance) * enemy.speed;
+                    let moveY = (dy / distance) * enemy.speed;
+                    let newX = enemy.x + moveX;
+                    let newY = enemy.y + moveY;
+                    enemy.facingRight = moveX >= 0;
+
+                    if (!isColliding(newX, newY, enemy.width, enemy.height)) {
+                        enemy.x = newX;
+                        enemy.y = newY;
+                    }
+                }
+
+                if (distance < detectionRadius) {
+                    enemy.chargeTimer -= 16;
+                    if (enemy.chargeTimer <= 0) {
+                        enemy.isCharging = true;
+                        if (distance > 0) {
+                            enemy.chargeDx = dx / distance;
+                            enemy.chargeDy = dy / distance;
+                            enemy.facingRight = enemy.chargeDx >= 0;
+                        } else {
+                            enemy.chargeDx = 0;
+                            enemy.chargeDy = 0;
+                        }
+                    }
+                }
+            } else {
+                let newX = enemy.x + enemy.chargeDx * enemy.chargeSpeed;
+                let newY = enemy.y + enemy.chargeDy * enemy.chargeSpeed;
+                enemy.facingRight = enemy.chargeDx >= 0;
+
+                if (!isColliding(newX, newY, enemy.width, enemy.height)) {
+                    enemy.x = newX;
+                    enemy.y = newY;
+                } else {
+                    enemy.isCharging = false;
+                    enemy.chargeTimer = 1500;
+                    enemy.chargeDx = 0;
+                    enemy.chargeDy = 0;
+                }
+            }
+        } else if (enemy.type === "shooter") {
+            enemy.facingRight = dx >= 0;
+
+            if (enemy.isHovering) {
+                enemy.hoverTimer -= 16;
+                enemy.shootCooldown -= 16;
+                if (enemy.shootCooldown <= 0) {
+                    shootProjectile(enemy, false);
+                    enemy.shootCooldown = 700;
+                }
+                if (enemy.hoverTimer <= 0) {
+                    enemy.isHovering = false;
+                    let angle = Math.random() * Math.PI * 2;
+                    let distance = 100 + Math.random() * 50;
+                    enemy.targetX = player.x + Math.cos(angle) * distance;
+                    enemy.targetY = player.y + Math.sin(angle) * distance;
+                    enemy.targetX = Math.max(
+                        enemy.width / 2,
+                        Math.min(enemy.targetX, ROOM_WIDTH * TILE_SIZE - enemy.width / 2)
+                    );
+                    enemy.targetY = Math.max(
+                        enemy.height / 2,
+                        Math.min(enemy.targetY, ROOM_HEIGHT * TILE_SIZE - enemy.height / 2)
+                    );
+                }
+            } else {
+                let dxToTarget = enemy.targetX - enemy.x;
+                let dyToTarget = enemy.targetY - enemy.y;
+                let distToTarget = Math.sqrt(dxToTarget * dxToTarget + dyToTarget * dyToTarget);
+                if (distToTarget > enemy.speed) {
+                    let moveX = (dxToTarget / distToTarget) * enemy.speed;
+                    let moveY = (dyToTarget / distToTarget) * enemy.speed;
+                    let newX = enemy.x + moveX;
+                    let newY = enemy.y + moveY;
+
+                    enemy.facingRight = moveX >= 0;
+
+                    if (!isColliding(newX, newY, enemy.width, enemy.height)) {
+                        enemy.x = newX;
+                        enemy.y = newY;
+                    } else {
+                        let altX = enemy.x + moveX;
+                        let altY = enemy.y;
+                        if (!isColliding(altX, altY, enemy.width, enemy.height)) {
+                            enemy.x = altX;
+                        } else {
+                            altX = enemy.x;
+                            altY = enemy.y + moveY;
+                            if (!isColliding(altX, altY, enemy.width, enemy.height)) {
+                                enemy.y = altY;
+                            } else {
+                                enemy.isHovering = true;
+                                enemy.hoverTimer = 3000;
+                            }
+                        }
+                    }
+                } else {
+                    enemy.x = enemy.targetX;
+                    enemy.y = enemy.targetY;
+                    enemy.isHovering = true;
+                    enemy.hoverTimer = 3000;
+                }
+            }
+        }
+
+        if (!player.invulnerable && isCollidingWith(enemy, player)) {
+            player.hp--;
+            player.invulnerable = true;
+            player.invulnerabilityTimer = INVULNERABILITY_DURATION;
+            player.flashTimer = FLASH_INTERVAL;
+            player.flash = true;
+            playSFX(playerHurtSFX);
+        }
+    });
 }
 
 function spawnShooterEnemy(roomX, roomY) {
@@ -1714,43 +2094,68 @@ function updateEnemies() {
         let distance = Math.sqrt(dx * dx + dy * dy);
 
         if (enemy.type === "basic") {
+            console.log(`Basic enemy update - Position: (${enemy.x}, ${enemy.y}), Speed: ${enemy.speed}, Distance to player: ${distance}`);
+
             if (distance > 0) {
+                // Normalize direction and apply speed
                 let moveX = (dx / distance) * enemy.speed;
                 let moveY = (dy / distance) * enemy.speed;
                 let newX = enemy.x + moveX;
                 let newY = enemy.y + moveY;
 
-                // Update facing direction based on movement
                 enemy.facingRight = moveX >= 0;
+                console.log(`Calculated move: (${moveX}, ${moveY}) -> New position: (${newX}, ${newY})`);
 
-                if (!isColliding(newX, newY, enemy.width, enemy.height)) {
+                // Check collision and move if clear
+                let collision = isColliding(newX, newY, enemy.width, enemy.height);
+                console.log(`Collision check at (${newX}, ${newY}): ${collision}`);
+
+                if (!collision) {
                     enemy.x = newX;
                     enemy.y = newY;
+                    console.log(`Moved basic enemy to (${enemy.x}, ${enemy.y})`);
                 } else {
+                    console.log("Collision detected, attempting alternative movement");
+                    // Simplified alternative movement: try moving in cardinal directions
                     let altDirections = [
-                        { dx: enemy.speed, dy: 0 },
-                        { dx: -enemy.speed, dy: 0 },
-                        { dx: 0, dy: enemy.speed },
-                        { dx: 0, dy: -enemy.speed },
+                        { dx: enemy.speed, dy: 0 },  // Right
+                        { dx: -enemy.speed, dy: 0 }, // Left
+                        { dx: 0, dy: enemy.speed },  // Down
+                        { dx: 0, dy: -enemy.speed }, // Up
                     ];
 
                     for (let alt of altDirections) {
                         newX = enemy.x + alt.dx;
                         newY = enemy.y + alt.dy;
-                        if (
-                            !isColliding(newX, newY, enemy.width, enemy.height)
-                        ) {
+                        if (!isColliding(newX, newY, enemy.width, enemy.height)) {
                             enemy.x = newX;
                             enemy.y = newY;
                             enemy.facingRight = alt.dx >= 0;
+                            console.log(`Alternative move succeeded to (${enemy.x}, ${enemy.y})`);
                             break;
                         }
                     }
+                    console.log("No valid alternative movement found");
                 }
+            } else {
+                console.log("Basic enemy too close to player, no movement needed");
             }
         } else if (enemy.type === "charger") {
             const detectionRadius = 1200;
             if (!enemy.isCharging) {
+                if (distance > 0) {
+                    let moveX = (dx / distance) * enemy.speed;
+                    let moveY = (dy / distance) * enemy.speed;
+                    let newX = enemy.x + moveX;
+                    let newY = enemy.y + moveY;
+                    enemy.facingRight = moveX >= 0;
+
+                    if (!isColliding(newX, newY, enemy.width, enemy.height)) {
+                        enemy.x = newX;
+                        enemy.y = newY;
+                    }
+                }
+
                 if (distance < detectionRadius) {
                     enemy.chargeTimer -= 16;
                     if (enemy.chargeTimer <= 0) {
@@ -1766,49 +2171,21 @@ function updateEnemies() {
                     }
                 }
             } else {
-                let targetDx = dx / distance;
-                let targetDy = dy / distance;
-                enemy.chargeDx += (targetDx - enemy.chargeDx) * 0.05;
-                enemy.chargeDy += (targetDy - enemy.chargeDy) * 0.05;
-                let magnitude = Math.sqrt(
-                    enemy.chargeDx * enemy.chargeDx +
-                    enemy.chargeDy * enemy.chargeDy
-                );
-                if (magnitude > 0) {
-                    enemy.chargeDx /= magnitude;
-                    enemy.chargeDy /= magnitude;
-                }
-
-                let newX = enemy.x + enemy.chargeDx * enemy.speed;
-                let newY = enemy.y + enemy.chargeDy * enemy.speed;
+                let newX = enemy.x + enemy.chargeDx * enemy.chargeSpeed;
+                let newY = enemy.y + enemy.chargeDy * enemy.chargeSpeed;
                 enemy.facingRight = enemy.chargeDx >= 0;
 
                 if (!isColliding(newX, newY, enemy.width, enemy.height)) {
                     enemy.x = newX;
                     enemy.y = newY;
                 } else {
-                    let altX = enemy.x + enemy.chargeDx * enemy.speed;
-                    let altY = enemy.y;
-                    if (!isColliding(altX, altY, enemy.width, enemy.height)) {
-                        enemy.x = altX;
-                    } else {
-                        altX = enemy.x;
-                        altY = enemy.y + enemy.chargeDy * enemy.speed;
-                        if (
-                            !isColliding(altX, altY, enemy.width, enemy.height)
-                        ) {
-                            enemy.y = altY;
-                        } else {
-                            enemy.isCharging = false;
-                            enemy.chargeTimer = 1000;
-                            enemy.chargeDx = 0;
-                            enemy.chargeDy = 0;
-                        }
-                    }
+                    enemy.isCharging = false;
+                    enemy.chargeTimer = 1500;
+                    enemy.chargeDx = 0;
+                    enemy.chargeDy = 0;
                 }
             }
         } else if (enemy.type === "shooter") {
-            // For shooters, face the player
             enemy.facingRight = dx >= 0;
 
             if (enemy.isHovering) {
@@ -1826,25 +2203,17 @@ function updateEnemies() {
                     enemy.targetY = player.y + Math.sin(angle) * distance;
                     enemy.targetX = Math.max(
                         enemy.width / 2,
-                        Math.min(
-                            enemy.targetX,
-                            ROOM_WIDTH * TILE_SIZE - enemy.width / 2
-                        )
+                        Math.min(enemy.targetX, ROOM_WIDTH * TILE_SIZE - enemy.width / 2)
                     );
                     enemy.targetY = Math.max(
                         enemy.height / 2,
-                        Math.min(
-                            enemy.targetY,
-                            ROOM_HEIGHT * TILE_SIZE - enemy.height / 2
-                        )
+                        Math.min(enemy.targetY, ROOM_HEIGHT * TILE_SIZE - enemy.height / 2)
                     );
                 }
             } else {
                 let dxToTarget = enemy.targetX - enemy.x;
                 let dyToTarget = enemy.targetY - enemy.y;
-                let distToTarget = Math.sqrt(
-                    dxToTarget * dxToTarget + dyToTarget * dyToTarget
-                );
+                let distToTarget = Math.sqrt(dxToTarget * dxToTarget + dyToTarget * dyToTarget);
                 if (distToTarget > enemy.speed) {
                     let moveX = (dxToTarget / distToTarget) * enemy.speed;
                     let moveY = (dyToTarget / distToTarget) * enemy.speed;
@@ -1859,21 +2228,12 @@ function updateEnemies() {
                     } else {
                         let altX = enemy.x + moveX;
                         let altY = enemy.y;
-                        if (
-                            !isColliding(altX, altY, enemy.width, enemy.height)
-                        ) {
+                        if (!isColliding(altX, altY, enemy.width, enemy.height)) {
                             enemy.x = altX;
                         } else {
                             altX = enemy.x;
                             altY = enemy.y + moveY;
-                            if (
-                                !isColliding(
-                                    altX,
-                                    altY,
-                                    enemy.width,
-                                    enemy.height
-                                )
-                            ) {
+                            if (!isColliding(altX, altY, enemy.width, enemy.height)) {
                                 enemy.y = altY;
                             } else {
                                 enemy.isHovering = true;
@@ -1980,7 +2340,10 @@ Promise.all([
         };
     }),
     new Promise((resolve) => (terrainSprite.onload = resolve)),
+    new Promise((resolve) => (powerUpSprite.onload = resolve)),
 ]).then(() => {
     titleAudio.play();
     gameLoop();
 });
+
+console.clear();
